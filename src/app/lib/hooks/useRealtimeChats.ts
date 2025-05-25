@@ -26,15 +26,27 @@ export function useRealtimeChats() {
       }
       
       setError(null)
+      console.log('Loading chats...')
+      
       const fetchedChats = await getChats()
+      console.log('Fetched chats:', fetchedChats)
+      
       setChats(fetchedChats || []) // Ensure it's always an array
       
       if (isInitialLoad.current) {
         isInitialLoad.current = false
       }
     } catch (err) {
-      console.error('Error loading chats:', err)
-      setError(err instanceof Error ? err.message : 'Failed to load chats')
+      console.error('Error loading chats - Full error:', err)
+      console.error('Error message:', err instanceof Error ? err.message : 'Unknown error')
+      console.error('Error stack:', err instanceof Error ? err.stack : 'No stack trace')
+      
+      // Set a more detailed error message
+      const errorMessage = err instanceof Error ? err.message : 'Failed to load chats'
+      setError(`Error: ${errorMessage}`)
+      
+      // Set empty array on error so we show empty state instead of loading forever
+      setChats([])
     } finally {
       setLoading(false)
       isLoadingRef.current = false
