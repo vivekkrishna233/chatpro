@@ -1,4 +1,4 @@
-// services/chatService.ts - Fixed version with proper type handling
+// services/chatService.ts - Fixed version with proper user handling
 import { createClient } from '@/app/lib/supabase/client'
 import { Chat, Message, formatChatFromDB, formatMessageFromDB } from '@/app/types/chat'
 
@@ -19,6 +19,45 @@ type ChatParticipantWithChat = {
   } | null
 }
 
+// Ensure user profile exists in profiles table
+async function ensureUserProfile(userId: string): Promise<void> {
+  try {
+    // Check if profile exists
+    const { data: existingProfile, error: checkError } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('id', userId)
+      .single()
+
+    if (checkError && checkError.code !== 'PGRST116') { // PGRST116 = no rows returned
+      throw checkError
+    }
+
+    // If profile doesn't exist, create it
+    if (!existingProfile) {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) {
+        const { error: insertError } = await supabase
+          .from('profiles')
+          .insert({
+            id: userId,
+            email: user.email,
+            full_name: user.user_metadata?.full_name || user.email?.split('@')[0] || null,
+            avatar_url: user.user_metadata?.avatar_url || null,
+          })
+
+        if (insertError) {
+          console.error('Error creating profile:', insertError)
+          throw insertError
+        }
+      }
+    }
+  } catch (error) {
+    console.error('Error ensuring user profile:', error)
+    throw error
+  }
+}
+
 // Get all chats for the current user
 export async function getChats(): Promise<Chat[]> {
   try {
@@ -26,6 +65,9 @@ export async function getChats(): Promise<Chat[]> {
     if (!user) throw new Error('User not authenticated')
 
     console.log('Getting chats for user:', user.id)
+
+    // Ensure user profile exists
+    await ensureUserProfile(user.id)
 
     // Get chats where user is a participant
     const { data: chatParticipants, error: participantsError } = await supabase
@@ -124,14 +166,8 @@ export async function sendMessage(
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) throw new Error('User not authenticated')
 
-    // Get user profile for sender name
-    // const { data: profile } = await supabase
-    //   .from('profiles')
-    //   .select('full_name')
-    //   .eq('id', user.id)
-    //   .single()
-
-    // const senderName = profile?.full_name || user.email?.split('@')[0] || 'Unknown'
+    // Ensure user profile exists
+    await ensureUserProfile(user.id)
 
     const { data: message, error } = await supabase
       .from('messages')
@@ -172,6 +208,14 @@ export async function createChat(
     if (!user) throw new Error('User not authenticated')
 
     console.log('Creating chat with params:', { name, chatType, phoneNumber, participantIds })
+
+    // Ensure current user profile exists
+    await ensureUserProfile(user.id)
+
+    // Ensure all participant profiles exist
+    for (const participantId of participantIds) {
+      await ensureUserProfile(participantId)
+    }
 
     // Create the chat
     const { data: chat, error: chatError } = await supabase
@@ -228,6 +272,9 @@ export async function getChatsAlternative(): Promise<Chat[]> {
     if (!user) throw new Error('User not authenticated')
 
     console.log('Getting chats for user (alternative approach):', user.id)
+
+    // Ensure user profile exists
+    await ensureUserProfile(user.id)
 
     // First, get chat IDs where user is a participant
     const { data: participantData, error: participantsError } = await supabase
@@ -294,6 +341,9 @@ export async function searchChats(query: string): Promise<Chat[]> {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) throw new Error('User not authenticated')
 
+    // Ensure user profile exists
+    await ensureUserProfile(user.id)
+
     // Use the alternative approach for searching as well
     const { data: participantData, error: participantsError } = await supabase
       .from('chat_participants')
@@ -349,6 +399,9 @@ export async function markMessagesAsRead(chatId: string): Promise<void> {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
 
+    // Ensure user profile exists
+    await ensureUserProfile(user.id)
+
     // Get unread messages in this chat (messages not sent by current user)
     const { data: messages } = await supabase
       .from('messages')
@@ -391,6 +444,9 @@ export async function getUnreadCount(chatId: string): Promise<number> {
   try {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return 0
+
+    // Ensure user profile exists
+    await ensureUserProfile(user.id)
 
     // Get messages in chat not sent by current user
     const { data: messages } = await supabase
