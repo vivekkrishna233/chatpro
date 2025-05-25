@@ -13,6 +13,7 @@ export function useRealtimeChats() {
   const isInitialLoad = useRef(true)
   const isLoadingRef = useRef(false)
   const currentSearchQuery = useRef<string>('')
+  const [subscriptionsReady, setSubscriptionsReady] = useState(false)
 
   const loadChats = useCallback(async (showLoading = false) => {
     // Prevent multiple simultaneous loads
@@ -39,6 +40,7 @@ export function useRealtimeChats() {
       
       if (isInitialLoad.current) {
         isInitialLoad.current = false
+        setSubscriptionsReady(true) // Trigger subscriptions setup
         console.log('✅ Initial load completed')
       }
     } catch (err) {
@@ -72,12 +74,12 @@ export function useRealtimeChats() {
   useEffect(() => {
     console.log('🚀 Starting initial chat load...')
     loadChats(true)
-  }, []) // Remove loadChats from dependencies to prevent infinite loop
+  }, [loadChats])
 
   // Set up realtime subscriptions
   useEffect(() => {
     // Only set up subscriptions after initial load
-    if (isInitialLoad.current) {
+    if (!subscriptionsReady) {
       console.log('⏳ Waiting for initial load before setting up subscriptions...')
       return
     }
@@ -157,7 +159,7 @@ export function useRealtimeChats() {
       console.log('🔕 Cleaning up realtime subscriptions...')
       supabase.removeChannel(channel)
     }
-  }, [loadChats, isInitialLoad.current]) // Re-subscribe when initial load completes
+  }, [subscriptionsReady, loadChats])
 
   const searchChats = useCallback(async (query: string) => {
     if (isLoadingRef.current) {
@@ -208,9 +210,9 @@ export function useRealtimeChats() {
       chatsCount: chats.length,
       loading,
       error,
-      isInitialLoad: isInitialLoad.current
+      subscriptionsReady
     })
-  }, [chats.length, loading, error])
+  }, [chats.length, loading, error, subscriptionsReady])
 
   return {
     chats,

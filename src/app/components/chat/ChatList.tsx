@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { AiOutlineFilter, AiOutlineSearch, AiOutlineMore } from 'react-icons/ai';
 import { MdRefresh, MdHelp, MdPhone } from 'react-icons/md';
 import { Chat } from '../../types/chat';
@@ -18,36 +18,38 @@ export default function ChatList({ onChatSelect, selectedChatId }: ChatListProps
   const [showStartChatModal, setShowStartChatModal] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
   const { chats, loading, searchChats, refetch } = useRealtimeChats();
-
-  // Memoize the search function to prevent infinite loops
-  const handleSearch = useCallback(async (term: string) => {
-    if (term.trim()) {
-      setIsSearching(true);
-      try {
-        await searchChats(term);
-      } finally {
-        setIsSearching(false);
-      }
-    } else {
-      setIsSearching(false);
-      // Only refetch if we were previously searching
-      if (searchTerm.trim()) {
-        await refetch();
-      }
-    }
-  }, [searchChats, refetch, searchTerm]);
+  const previousSearchTerm = useRef('');
 
   // Handle search with debounce
   useEffect(() => {
+    const handleSearch = async (term: string) => {
+      if (term.trim()) {
+        setIsSearching(true);
+        try {
+          await searchChats(term);
+        } finally {
+          setIsSearching(false);
+        }
+      } else {
+        setIsSearching(false);
+        // Only refetch if we were previously searching
+        if (previousSearchTerm.current.trim()) {
+          await refetch();
+        }
+      }
+      previousSearchTerm.current = term;
+    };
+
     const timeoutId = setTimeout(() => {
       handleSearch(searchTerm);
     }, 300);
 
     return () => clearTimeout(timeoutId);
-  }, [searchTerm]); // Remove handleSearch from dependencies to prevent infinite loop
+  }, [searchTerm, searchChats, refetch]);
 
   const handleRefresh = useCallback(() => {
     setSearchTerm(''); // Clear search term
+    previousSearchTerm.current = '';
     refetch();
   }, [refetch]);
 

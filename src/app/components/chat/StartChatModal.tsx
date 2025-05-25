@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import Image from 'next/image';
 import { AiOutlineSearch, AiOutlineClose } from 'react-icons/ai';
 import { MdPersonAdd } from 'react-icons/md';
 import { searchUsers } from '@/app/services/uthService';// Fixed import path
@@ -21,20 +22,7 @@ export default function StartChatModal({ onClose, onChatCreated }: StartChatModa
   const [creating, setCreating] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Search users with debounce
-  useEffect(() => {
-    const timeoutId = setTimeout(() => {
-      if (searchTerm.trim().length >= 2) {
-        handleSearchUsers(searchTerm);
-      } else {
-        setUsers([]);
-      }
-    }, 300);
-
-    return () => clearTimeout(timeoutId);
-  }, [searchTerm]);
-
-  const handleSearchUsers = async (query: string) => {
+  const handleSearchUsers = useCallback(async (query: string) => {
     try {
       setLoading(true);
       setError(null);
@@ -46,7 +34,20 @@ export default function StartChatModal({ onClose, onChatCreated }: StartChatModa
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  // Search users with debounce
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      if (searchTerm.trim().length >= 2) {
+        handleSearchUsers(searchTerm);
+      } else {
+        setUsers([]);
+      }
+    }, 300);
+
+    return () => clearTimeout(timeoutId);
+  }, [searchTerm, handleSearchUsers]);
 
   const handleStartChat = async (user: Profile) => {
     try {
@@ -138,12 +139,15 @@ export default function StartChatModal({ onClose, onChatCreated }: StartChatModa
                   onClick={() => handleStartChat(user)}
                 >
                   <div className="flex items-center space-x-3">
-                    <div className="w-10 h-10 bg-gray-200 rounded-full flex items-center justify-center">
+                    <div className="w-10 h-10 bg-gray-200 rounded-full flex items-center justify-center overflow-hidden">
                       {user.avatar_url ? (
-                        <img 
-                          src={user.avatar_url} 
-                          alt={user.full_name || user.email}
+                        <Image
+                          src={user.avatar_url}
+                          alt={user.full_name || user.email || 'User avatar'}
+                          width={40}
+                          height={40}
                           className="w-full h-full rounded-full object-cover"
+                          unoptimized={user.avatar_url.startsWith('data:') || user.avatar_url.includes('blob:')}
                         />
                       ) : (
                         <span className="text-gray-500 font-medium">
