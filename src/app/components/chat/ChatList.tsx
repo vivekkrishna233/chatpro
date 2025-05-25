@@ -17,7 +17,7 @@ export default function ChatList({ onChatSelect, selectedChatId }: ChatListProps
   const [searchTerm, setSearchTerm] = useState('');
   const [showStartChatModal, setShowStartChatModal] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
-  const { chats, loading, error, searchChats, refetch } = useRealtimeChats();
+  const { chats, loading, searchChats, refetch } = useRealtimeChats();
 
   // Memoize the search function to prevent infinite loops
   const handleSearch = useCallback(async (term: string) => {
