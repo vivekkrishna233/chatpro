@@ -1,4 +1,4 @@
-// services/chatService.ts - Updated to work with profiles table only
+// services/chatService.ts - Fixed to match actual database schema
 import { createClient } from '@/app/lib/supabase/client'
 import { Chat, Message, formatChatFromDB, formatMessageFromDB } from '@/app/types/chat'
 
@@ -150,7 +150,7 @@ export async function sendMessage(
   }
 }
 
-// Create a new chat - Now works with profiles table
+// Create a new chat - Fixed to match actual database schema
 export async function createChat(
   name: string,
   chatType: 'direct' | 'group' = 'direct',
@@ -163,13 +163,13 @@ export async function createChat(
 
     console.log('Creating chat with params:', { name, chatType, phoneNumber, participantIds })
 
-    // Create the chat (created_by now references profiles table)
+    // Create the chat
     const { data: chat, error: chatError } = await supabase
       .from('chats')
       .insert({
         name,
         chat_type: chatType,
-        created_by: user.id, // This now references profiles.id which references auth.users.id
+        created_by: user.id,
       })
       .select()
       .single()
@@ -181,12 +181,12 @@ export async function createChat(
 
     console.log('Chat created:', chat)
 
-    // Add participants (creator + other participants)
+    // Add participants - FIXED: removed is_admin field that doesn't exist
     const allParticipants = [user.id, ...participantIds]
-    const participantData = allParticipants.map((userId, index) => ({
+    const participantData = allParticipants.map(userId => ({
       chat_id: chat.id,
-      user_id: userId, // This now references profiles.id
-      is_admin: index === 0, // First participant (creator) is admin
+      user_id: userId,
+      // Removed is_admin field as it doesn't exist in the table
     }))
 
     console.log('Adding participants:', participantData)
@@ -405,5 +405,25 @@ export async function getUnreadCount(chatId: string): Promise<number> {
   } catch (error) {
     console.error('Error getting unread count:', error)
     return 0
+  }
+}
+
+// Helper function to check if user is chat creator (since there's no is_admin column)
+export async function isChatCreator(chatId: string, userId?: string): Promise<boolean> {
+  try {
+    const { data: { user } } = await supabase.auth.getUser()
+    const checkUserId = userId || user?.id
+    if (!checkUserId) return false
+
+    const { data: chat } = await supabase
+      .from('chats')
+      .select('created_by')
+      .eq('id', chatId)
+      .single()
+
+    return chat?.created_by === checkUserId
+  } catch (error) {
+    console.error('Error checking if user is chat creator:', error)
+    return false
   }
 }
