@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { AiOutlineSearch, AiOutlineClose } from 'react-icons/ai';
 import { MdPersonAdd } from 'react-icons/md';
-import { searchUsers } from '@/app/services/uthService';
+import { searchUsers } from '@/app/services/uthService';// Fixed import path
 import { createChat } from '../../services/chatService';
 import { Chat } from '../../types/chat';
 import { Profile } from '../../types/auth';
@@ -53,18 +53,22 @@ export default function StartChatModal({ onClose, onChatCreated }: StartChatModa
       setCreating(user.id);
       setError(null);
       
-      // Fixed: Match the createChat function signature from your service
+      console.log('Starting chat with user:', user);
+      
+      // Create chat with proper name and participant
+      const chatName = user.full_name || user.email || 'Chat';
       const newChat = await createChat(
-        user.full_name || user.email,
+        chatName,
         'direct',
-        user?.email || undefined,
+        undefined, // phone number not needed
         [user.id] // Pass as array of participant IDs
       );
 
+      console.log('Chat created successfully:', newChat);
       onChatCreated(newChat);
     } catch (err) {
-      setError('Failed to create chat');
       console.error('Chat creation error:', err);
+      setError('Failed to create chat. Please try again.');
     } finally {
       setCreating(null);
     }
@@ -134,6 +138,19 @@ export default function StartChatModal({ onClose, onChatCreated }: StartChatModa
                   onClick={() => handleStartChat(user)}
                 >
                   <div className="flex items-center space-x-3">
+                    <div className="w-10 h-10 bg-gray-200 rounded-full flex items-center justify-center">
+                      {user.avatar_url ? (
+                        <img 
+                          src={user.avatar_url} 
+                          alt={user.full_name || user.email}
+                          className="w-full h-full rounded-full object-cover"
+                        />
+                      ) : (
+                        <span className="text-gray-500 font-medium">
+                          {(user.full_name || user.email || 'U').charAt(0).toUpperCase()}
+                        </span>
+                      )}
+                    </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-gray-900 truncate">
                         {user.full_name || 'Unknown User'}

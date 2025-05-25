@@ -1,5 +1,17 @@
 import { User } from '@supabase/supabase-js'
 
+export interface Profile {
+  id: string
+  email: string
+  full_name: string | null
+  avatar_url: string | null
+  phone_number?: string | null
+  is_online: boolean
+  last_seen: string
+  created_at: string
+  updated_at: string
+}
+
 export interface AuthUser extends User {
   full_name?: string
   avatar_url?: string

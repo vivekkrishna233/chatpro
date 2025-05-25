@@ -1,8 +1,23 @@
-// services/chatService.ts
+// services/chatService.ts - Fixed version with proper type handling
 import { createClient } from '@/app/lib/supabase/client'
 import { Chat, Message, formatChatFromDB, formatMessageFromDB } from '@/app/types/chat'
 
 const supabase = createClient()
+
+// Define proper types for the query results
+type ChatParticipantWithChat = {
+  chat_id: string
+  chats: {
+    id: string
+    name: string
+    chat_type: 'direct' | 'group'
+    avatar_url: string | null
+    is_archived: boolean
+    created_by: string
+    created_at: string
+    updated_at: string
+  } | null
+}
 
 // Get all chats for the current user
 export async function getChats(): Promise<Chat[]> {
@@ -12,7 +27,7 @@ export async function getChats(): Promise<Chat[]> {
 
     console.log('Getting chats for user:', user.id)
 
-    // Get chats where user is a participant and hasn't left
+    // Get chats where user is a participant
     const { data: chatParticipants, error: participantsError } = await supabase
       .from('chat_participants')
       .select(`
@@ -21,7 +36,6 @@ export async function getChats(): Promise<Chat[]> {
           id,
           name,
           chat_type,
-          phone_number,
           avatar_url,
           is_archived,
           created_by,
@@ -29,8 +43,7 @@ export async function getChats(): Promise<Chat[]> {
           updated_at
         )
       `)
-      .eq('user_id', user.id)
-      .is('left_at', null) // Only get chats where user hasn't left
+      .eq('user_id', user.id) as { data: ChatParticipantWithChat[] | null, error: any }
 
     if (participantsError) {
       console.error('Participants error:', participantsError)
@@ -47,8 +60,8 @@ export async function getChats(): Promise<Chat[]> {
     // Get last message for each chat
     const chatsWithMessages = await Promise.all(
       chatParticipants.map(async (cp) => {
-        // Check if chats data exists and handle both array and object cases
-        const chatData = Array.isArray(cp.chats) ? cp.chats[0] : cp.chats
+        // Handle the chats data properly
+        const chatData = cp.chats
         if (!chatData) {
           console.warn('No chat data found for participant:', cp)
           return null
@@ -125,7 +138,6 @@ export async function sendMessage(
       .insert({
         chat_id: chatId,
         sender_id: user.id,
-        sender_name: senderName,
         content,
         message_type: messageType,
         reply_to_id: replyToId,
@@ -148,7 +160,7 @@ export async function sendMessage(
   }
 }
 
-// Create a new chat
+// Create a new chat - FIXED VERSION
 export async function createChat(
   name: string,
   chatType: 'direct' | 'group' = 'direct',
@@ -159,37 +171,119 @@ export async function createChat(
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) throw new Error('User not authenticated')
 
+    console.log('Creating chat with params:', { name, chatType, phoneNumber, participantIds })
+
     // Create the chat
     const { data: chat, error: chatError } = await supabase
       .from('chats')
       .insert({
         name,
         chat_type: chatType,
-        phone_number: phoneNumber,
         created_by: user.id,
       })
       .select()
       .single()
 
-    if (chatError) throw chatError
+    if (chatError) {
+      console.error('Chat creation error:', chatError)
+      throw chatError
+    }
 
-    // Add creator as participant
-    const participants = [user.id, ...participantIds]
-    const participantData = participants.map((userId, index) => ({
+    console.log('Chat created:', chat)
+
+    // Add participants (creator + other participants)
+    const allParticipants = [user.id, ...participantIds]
+    const participantData = allParticipants.map((userId, index) => ({
       chat_id: chat.id,
       user_id: userId,
-      role: index === 0 ? 'admin' : 'member', // Use 'role' instead of 'is_admin'
+      is_admin: index === 0, // First participant (creator) is admin
     }))
+
+    console.log('Adding participants:', participantData)
 
     const { error: participantsError } = await supabase
       .from('chat_participants')
       .insert(participantData)
 
-    if (participantsError) throw participantsError
+    if (participantsError) {
+      console.error('Participants error:', participantsError)
+      // Try to clean up the chat if participant addition fails
+      await supabase.from('chats').delete().eq('id', chat.id)
+      throw participantsError
+    }
+
+    console.log('Participants added successfully')
 
     return formatChatFromDB(chat)
   } catch (error) {
     console.error('Error creating chat:', error)
+    throw error
+  }
+}
+
+// Alternative approach: Get chats directly without join
+export async function getChatsAlternative(): Promise<Chat[]> {
+  try {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) throw new Error('User not authenticated')
+
+    console.log('Getting chats for user (alternative approach):', user.id)
+
+    // First, get chat IDs where user is a participant
+    const { data: participantData, error: participantsError } = await supabase
+      .from('chat_participants')
+      .select('chat_id')
+      .eq('user_id', user.id)
+
+    if (participantsError) {
+      console.error('Participants error:', participantsError)
+      throw participantsError
+    }
+
+    if (!participantData || participantData.length === 0) {
+      console.log('No chat participants found')
+      return []
+    }
+
+    const chatIds = participantData.map(p => p.chat_id)
+
+    // Then get the actual chat data
+    const { data: chatsData, error: chatsError } = await supabase
+      .from('chats')
+      .select('*')
+      .in('id', chatIds)
+      .order('updated_at', { ascending: false })
+
+    if (chatsError) {
+      console.error('Chats error:', chatsError)
+      throw chatsError
+    }
+
+    if (!chatsData || chatsData.length === 0) {
+      return []
+    }
+
+    // Get last message for each chat
+    const chatsWithMessages = await Promise.all(
+      chatsData.map(async (chatData) => {
+        // Get last message
+        const { data: lastMessage } = await supabase
+          .from('messages')
+          .select('*')
+          .eq('chat_id', chatData.id)
+          .is('deleted_at', null)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .single()
+
+        return formatChatFromDB(chatData, lastMessage)
+      })
+    )
+
+    console.log('Final chats (alternative):', chatsWithMessages)
+    return chatsWithMessages
+  } catch (error) {
+    console.error('Error fetching chats (alternative):', error)
     throw error
   }
 }
@@ -200,42 +294,39 @@ export async function searchChats(query: string): Promise<Chat[]> {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) throw new Error('User not authenticated')
 
-    const { data: chatParticipants, error } = await supabase
+    // Use the alternative approach for searching as well
+    const { data: participantData, error: participantsError } = await supabase
       .from('chat_participants')
-      .select(`
-        chat_id,
-        chats!inner (
-          id,
-          name,
-          chat_type,
-          phone_number,
-          avatar_url,
-          is_archived,
-          created_by,
-          created_at,
-          updated_at
-        )
-      `)
+      .select('chat_id')
       .eq('user_id', user.id)
-      .is('left_at', null)
 
-    if (error) throw error
+    if (participantsError) throw participantsError
 
-    // Filter chats by name on the client side
-    const filteredParticipants = (chatParticipants || []).filter(cp => {
-      const chatData = Array.isArray(cp.chats) ? cp.chats[0] : cp.chats
-      return chatData && chatData.name && chatData.name.toLowerCase().includes(query.toLowerCase())
-    })
+    if (!participantData || participantData.length === 0) {
+      return []
+    }
+
+    const chatIds = participantData.map(p => p.chat_id)
+
+    // Get chats and filter by name
+    const { data: chatsData, error: chatsError } = await supabase
+      .from('chats')
+      .select('*')
+      .in('id', chatIds)
+      .ilike('name', `%${query}%`)
+
+    if (chatsError) throw chatsError
+
+    if (!chatsData || chatsData.length === 0) {
+      return []
+    }
 
     const chatsWithMessages = await Promise.all(
-      filteredParticipants.map(async (cp) => {
-        const chatData = Array.isArray(cp.chats) ? cp.chats[0] : cp.chats
-        if (!chatData) return null
-
+      chatsData.map(async (chatData) => {
         const { data: lastMessage } = await supabase
           .from('messages')
           .select('*')
-          .eq('chat_id', cp.chat_id)
+          .eq('chat_id', chatData.id)
           .is('deleted_at', null)
           .order('created_at', { ascending: false })
           .limit(1)
@@ -245,7 +336,7 @@ export async function searchChats(query: string): Promise<Chat[]> {
       })
     )
 
-    return chatsWithMessages.filter((chat): chat is Chat => chat !== null)
+    return chatsWithMessages
   } catch (error) {
     console.error('Error searching chats:', error)
     throw error
