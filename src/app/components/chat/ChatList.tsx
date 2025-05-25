@@ -64,24 +64,6 @@ export default function ChatList({ onChatSelect, selectedChatId }: ChatListProps
   // Show loading state while searching or loading
   const isLoading = loading || isSearching;
 
-  if (error) {
-    return (
-      <div className="w-80 bg-white border-r border-gray-200 flex flex-col h-full">
-        <div className="flex-1 flex items-center justify-center">
-          <div className="text-center text-red-500">
-            <p className="mb-2">Error loading chats</p>
-            <button 
-              onClick={handleRefresh}
-              className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600"
-            >
-              Retry
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <>
       <div className="w-80 bg-white border-r border-gray-200 flex flex-col h-full">
