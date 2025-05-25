@@ -10,7 +10,9 @@ export async function getChats(): Promise<Chat[]> {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) throw new Error('User not authenticated')
 
-    // Get chats where user is a participant
+    console.log('Getting chats for user:', user.id)
+
+    // Get chats where user is a participant and hasn't left
     const { data: chatParticipants, error: participantsError } = await supabase
       .from('chat_participants')
       .select(`
@@ -28,32 +30,48 @@ export async function getChats(): Promise<Chat[]> {
         )
       `)
       .eq('user_id', user.id)
-      .is('left_at', null) // Only get active participants
+      .is('left_at', null) // Only get chats where user hasn't left
 
-    if (participantsError) throw participantsError
+    if (participantsError) {
+      console.error('Participants error:', participantsError)
+      throw participantsError
+    }
+
+    console.log('Chat participants data:', chatParticipants)
+
+    if (!chatParticipants || chatParticipants.length === 0) {
+      console.log('No chat participants found')
+      return []
+    }
 
     // Get last message for each chat
-    const chatIds = chatParticipants?.map(cp => cp.chat_id) || []
     const chatsWithMessages = await Promise.all(
-      chatIds.map(async (chatId) => {
-        const chat = chatParticipants?.find(cp => cp.chat_id === chatId)?.chats
-        if (!chat) return null
-
+      chatParticipants.map(async (cp) => {
+        // Check if chats data exists and handle both array and object cases
+        const chatData = Array.isArray(cp.chats) ? cp.chats[0] : cp.chats
+        if (!chatData) {
+          console.warn('No chat data found for participant:', cp)
+          return null
+        }
+        
         // Get last message
         const { data: lastMessage } = await supabase
           .from('messages')
           .select('*')
-          .eq('chat_id', chatId)
+          .eq('chat_id', cp.chat_id)
           .is('deleted_at', null)
           .order('created_at', { ascending: false })
           .limit(1)
           .single()
 
-        return formatChatFromDB(chat, lastMessage)
+        return formatChatFromDB(chatData, lastMessage)
       })
     )
 
-    return chatsWithMessages.filter((chat): chat is Chat => chat !== null)
+    const validChats = chatsWithMessages.filter((chat): chat is Chat => chat !== null)
+    console.log('Final chats:', validChats)
+    
+    return validChats
   } catch (error) {
     console.error('Error fetching chats:', error)
     throw error
@@ -155,13 +173,12 @@ export async function createChat(
 
     if (chatError) throw chatError
 
-    // Add creator as participant with admin role
+    // Add creator as participant
     const participants = [user.id, ...participantIds]
     const participantData = participants.map((userId, index) => ({
       chat_id: chat.id,
       user_id: userId,
-      role: index === 0 ? 'admin' : 'member', // Creator is admin
-      joined_at: new Date().toISOString(),
+      role: index === 0 ? 'admin' : 'member', // Use 'role' instead of 'is_admin'
     }))
 
     const { error: participantsError } = await supabase
@@ -201,12 +218,20 @@ export async function searchChats(query: string): Promise<Chat[]> {
       `)
       .eq('user_id', user.id)
       .is('left_at', null)
-      .ilike('chats.name', `%${query}%`)
 
     if (error) throw error
 
+    // Filter chats by name on the client side
+    const filteredParticipants = (chatParticipants || []).filter(cp => {
+      const chatData = Array.isArray(cp.chats) ? cp.chats[0] : cp.chats
+      return chatData && chatData.name && chatData.name.toLowerCase().includes(query.toLowerCase())
+    })
+
     const chatsWithMessages = await Promise.all(
-      (chatParticipants || []).map(async (cp) => {
+      filteredParticipants.map(async (cp) => {
+        const chatData = Array.isArray(cp.chats) ? cp.chats[0] : cp.chats
+        if (!chatData) return null
+
         const { data: lastMessage } = await supabase
           .from('messages')
           .select('*')
@@ -216,11 +241,11 @@ export async function searchChats(query: string): Promise<Chat[]> {
           .limit(1)
           .single()
 
-        return formatChatFromDB(cp.chats, lastMessage)
+        return formatChatFromDB(chatData, lastMessage)
       })
     )
 
-    return chatsWithMessages
+    return chatsWithMessages.filter((chat): chat is Chat => chat !== null)
   } catch (error) {
     console.error('Error searching chats:', error)
     throw error
