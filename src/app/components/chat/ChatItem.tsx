@@ -1,76 +1,86 @@
+// File: components/chat/ChatItem.tsx
+"use client";
+
 import { Chat } from '../../types/chat';
 import Avatar from '../ui/Avatar';
-import Badge from '../ui/Badge';
-import { AiOutlinePhone } from 'react-icons/ai';
 
 interface ChatItemProps {
   chat: Chat;
-  isSelected?: boolean;
-  onClick?: () => void;
+  isSelected: boolean;
+  onClick: () => void;
 }
 
-export default function ChatItem({ chat, isSelected = false, onClick }: ChatItemProps) {
-  const getBadgeVariant = (tag: string) => {
-    switch (tag.toLowerCase()) {
-      case 'demo': return 'demo';
-      case 'internal': return 'internal';
-      case 'signup': return 'signup';
-      case 'content': return 'content';
-      case 'dont send': return 'dont-send';
-      default: return 'default';
-    }
-  };
-
+export default function ChatItem({ chat, isSelected, onClick }: ChatItemProps) {
   return (
     <div
       onClick={onClick}
-      className={`
-        flex items-center p-3 hover:bg-gray-50 cursor-pointer border-b border-gray-100
-        ${isSelected ? 'bg-green-50 border-r-2 border-r-green-500' : ''}
-      `}
+      className={`flex items-center p-4 cursor-pointer hover:bg-gray-50 border-l-4 transition-colors ${
+        isSelected
+          ? 'bg-green-50 border-green-500'
+          : 'border-transparent hover:border-gray-200'
+      }`}
     >
-      <div className="flex-shrink-0 mr-3">
-        <Avatar 
-          fallback={chat.name} 
-          isOnline={chat.isOnline}
+      <div className="relative">
+        <Avatar
+          src={chat.avatarUrl}
+          fallback={chat.name}
           size="md"
+          isOnline={chat.isOnline}
         />
+        {chat.unreadCount && chat.unreadCount > 0 && (
+          <div className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
+            {chat.unreadCount > 99 ? '99+' : chat.unreadCount}
+          </div>
+        )}
       </div>
 
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center justify-between mb-1">
-          <h3 className="text-sm font-medium text-gray-900 truncate">
+      <div className="flex-1 ml-3 min-w-0">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-gray-900 truncate">
             {chat.name}
           </h3>
-          <span className="text-xs text-gray-500 flex-shrink-0 ml-2">
+          <span className="text-xs text-gray-500 flex-shrink-0">
             {chat.timestamp}
           </span>
         </div>
 
-        <p className="text-sm text-gray-600 truncate mb-2">
-          {chat.lastMessage}
-        </p>
-
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-1 text-xs text-gray-500">
-            <AiOutlinePhone className="w-3 h-3" />
-            <span>{chat.phoneNumber}</span>
+        <div className="flex items-center justify-between mt-1">
+          <p className="text-sm text-gray-600 truncate">
+            {chat.lastMessage}
+          </p>
+          <div className="flex items-center space-x-1 flex-shrink-0 ml-2">
+            {chat.isPinned && (
+              <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+            )}
+            {chat.isMuted && (
+              <div className="w-2 h-2 bg-gray-400 rounded-full"></div>
+            )}
           </div>
-          
-          {chat.unreadCount && chat.unreadCount > 0 && (
-            <div className="bg-green-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
-              {chat.unreadCount}
-            </div>
-          )}
         </div>
 
+        {/* Tags */}
         {chat.tags && chat.tags.length > 0 && (
           <div className="flex flex-wrap gap-1 mt-2">
-            {chat.tags.map((tag, index) => (
-              <Badge key={index} variant={getBadgeVariant(tag)}>
+            {chat.tags.slice(0, 2).map((tag, index) => (
+              <span
+                key={index}
+                className="inline-block bg-gray-100 text-gray-600 text-xs px-2 py-1 rounded-full"
+              >
                 {tag}
-              </Badge>
+              </span>
             ))}
+            {chat.tags.length > 2 && (
+              <span className="text-xs text-gray-500">
+                +{chat.tags.length - 2}
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* Phone number for direct chats */}
+        {chat.phoneNumber && (
+          <div className="text-xs text-gray-500 mt-1">
+            {chat.phoneNumber}
           </div>
         )}
       </div>

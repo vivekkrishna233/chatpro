@@ -1,28 +1,23 @@
 'use client';
 
-import { 
-  AiOutlineHome, 
-  AiOutlineMessage, 
-  AiOutlineTool, 
-  AiOutlineBarChart, 
-  AiOutlineTeam, 
-  AiOutlineContacts, 
+import {
+  AiOutlineHome,
+  AiOutlineMessage,
+  AiOutlineTool,
+  AiOutlineBarChart,
+  AiOutlineTeam,
+  AiOutlineContacts,
   AiOutlineQuestionCircle
 } from 'react-icons/ai';
 import SidebarItem from './SidebarItem';
-import Avatar from '../ui/Avatar';
-import UserProfile from './UserProfile';  // Import your UserProfile component here
+import UserProfile from './UserProfile';
 
 export default function Sidebar() {
   return (
     <div className="w-16 bg-white border-r border-gray-200 flex flex-col items-center py-4">
-      {/* Logo/Avatar */}
+      {/* User Profile Avatar at top */}
       <div className="mb-6">
-        <Avatar 
-          size="md" 
-          fallback="P" 
-          className="bg-green-500 text-white"
-        />
+        <UserProfile />
       </div>
 
       {/* Navigation Items */}
@@ -34,11 +29,6 @@ export default function Sidebar() {
         <SidebarItem icon={<AiOutlineTeam />} />
         <SidebarItem icon={<AiOutlineContacts />} />
         <SidebarItem icon={<AiOutlineQuestionCircle />} />
-      </div>
-
-      {/* Bottom User Profile */}
-      <div className="mt-auto w-full">
-        <UserProfile />
       </div>
     </div>
   );
