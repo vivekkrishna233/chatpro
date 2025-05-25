@@ -7,108 +7,55 @@ const supabase = createClient()
 // Get all chats for the current user
 export async function getChats(): Promise<Chat[]> {
   try {
-    console.log('🔍 Starting getChats...')
-    
-    const { data: { user }, error: userError } = await supabase.auth.getUser()
-    if (userError) {
-      console.error('❌ Auth error:', userError)
-      throw new Error(`Authentication error: ${userError.message}`)
-    }
-    
-    if (!user) {
-      console.error('❌ No user found')
-      throw new Error('User not authenticated')
-    }
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) throw new Error('User not authenticated')
 
-    console.log('✅ User authenticated:', user.id)
-
-    // First, get chat IDs where user is a participant
-    const { data: participantData, error: participantsError } = await supabase
+    // Get chats where user is a participant
+    const { data: chatParticipants, error: participantsError } = await supabase
       .from('chat_participants')
-      .select('chat_id')
-      .eq('user_id', user.id)
-
-    if (participantsError) {
-      console.error('❌ Participants error:', participantsError)
-      throw new Error(`Failed to fetch chat participants: ${participantsError.message}`)
-    }
-
-    console.log('✅ Chat participants:', participantData?.length || 0)
-
-    if (!participantData || participantData.length === 0) {
-      console.log('ℹ️ No chat participants found')
-      return []
-    }
-
-    const chatIds = participantData.map(p => p.chat_id)
-    console.log('📋 Chat IDs:', chatIds)
-
-    // Get chat details
-    const { data: chatsData, error: chatsError } = await supabase
-      .from('chats')
       .select(`
-        id,
-        name,
-        chat_type,
-        phone_number,
-        avatar_url,
-        is_archived,
-        created_by,
-        created_at,
-        updated_at
+        chat_id,
+        chats!inner (
+          id,
+          name,
+          chat_type,
+          phone_number,
+          avatar_url,
+          is_archived,
+          created_by,
+          created_at,
+          updated_at
+        )
       `)
-      .in('id', chatIds)
-      .order('updated_at', { ascending: false })
+      .eq('user_id', user.id)
+      .is('left_at', null) // Only get active participants
 
-    if (chatsError) {
-      console.error('❌ Chats error:', chatsError)
-      throw new Error(`Failed to fetch chats: ${chatsError.message}`)
-    }
-
-    console.log('✅ Chats data:', chatsData?.length || 0)
-
-    if (!chatsData || chatsData.length === 0) {
-      console.log('ℹ️ No chats found')
-      return []
-    }
+    if (participantsError) throw participantsError
 
     // Get last message for each chat
+    const chatIds = chatParticipants?.map(cp => cp.chat_id) || []
     const chatsWithMessages = await Promise.all(
-      chatsData.map(async (chat) => {
-        try {
-          const { data: lastMessage, error: messageError } = await supabase
-            .from('messages')
-            .select('*')
-            .eq('chat_id', chat.id)
-            .is('deleted_at', null)
-            .order('created_at', { ascending: false })
-            .limit(1)
-            .maybeSingle() // Use maybeSingle instead of single to handle no messages
+      chatIds.map(async (chatId) => {
+        const chat = chatParticipants?.find(cp => cp.chat_id === chatId)?.chats
+        if (!chat) return null
 
-          if (messageError) {
-            console.warn(`⚠️ Error fetching last message for chat ${chat.id}:`, messageError)
-            // Don't throw, just continue without last message
-          }
+        // Get last message
+        const { data: lastMessage } = await supabase
+          .from('messages')
+          .select('*')
+          .eq('chat_id', chatId)
+          .is('deleted_at', null)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .single()
 
-          return formatChatFromDB(chat, lastMessage || undefined)
-        } catch (error) {
-          console.warn(`⚠️ Error processing chat ${chat.id}:`, error)
-          return formatChatFromDB(chat, undefined)
-        }
+        return formatChatFromDB(chat, lastMessage)
       })
     )
 
-    const validChats = chatsWithMessages.filter((chat): chat is Chat => chat !== null)
-    console.log('✅ Final chats count:', validChats.length)
-    
-    return validChats
-
+    return chatsWithMessages.filter((chat): chat is Chat => chat !== null)
   } catch (error) {
-    console.error('❌ Error in getChats:', error)
-    console.error('❌ Error details:', {
-      message: error instanceof Error ? error.message : 'Unknown error',
-      stack: error instanceof Error ? error.stack : 'No stack trace'
-    })
+    console.error('Error fetching chats:', error)
     throw error
   }
 }
@@ -116,8 +63,6 @@ export async function getChats(): Promise<Chat[]> {
 // Get messages for a specific chat
 export async function getMessages(chatId: string): Promise<Message[]> {
   try {
-    console.log('🔍 Getting messages for chat:', chatId)
-    
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) throw new Error('User not authenticated')
 
@@ -128,15 +73,11 @@ export async function getMessages(chatId: string): Promise<Message[]> {
       .is('deleted_at', null)
       .order('created_at', { ascending: true })
 
-    if (error) {
-      console.error('❌ Messages error:', error)
-      throw new Error(`Failed to fetch messages: ${error.message}`)
-    }
+    if (error) throw error
 
-    console.log('✅ Messages fetched:', messages?.length || 0)
     return messages?.map(msg => formatMessageFromDB(msg, user.id)) || []
   } catch (error) {
-    console.error('❌ Error fetching messages:', error)
+    console.error('Error fetching messages:', error)
     throw error
   }
 }
@@ -149,8 +90,6 @@ export async function sendMessage(
   replyToId?: string
 ): Promise<Message> {
   try {
-    console.log('📤 Sending message to chat:', chatId)
-    
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) throw new Error('User not authenticated')
 
@@ -176,10 +115,7 @@ export async function sendMessage(
       .select()
       .single()
 
-    if (error) {
-      console.error('❌ Send message error:', error)
-      throw new Error(`Failed to send message: ${error.message}`)
-    }
+    if (error) throw error
 
     // Update chat's updated_at timestamp
     await supabase
@@ -187,10 +123,9 @@ export async function sendMessage(
       .update({ updated_at: new Date().toISOString() })
       .eq('id', chatId)
 
-    console.log('✅ Message sent successfully')
     return formatMessageFromDB(message, user.id)
   } catch (error) {
-    console.error('❌ Error sending message:', error)
+    console.error('Error sending message:', error)
     throw error
   }
 }
@@ -203,8 +138,6 @@ export async function createChat(
   participantIds: string[] = []
 ): Promise<Chat> {
   try {
-    console.log('🆕 Creating chat:', { name, chatType, participantIds })
-    
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) throw new Error('User not authenticated')
 
@@ -220,32 +153,26 @@ export async function createChat(
       .select()
       .single()
 
-    if (chatError) {
-      console.error('❌ Create chat error:', chatError)
-      throw new Error(`Failed to create chat: ${chatError.message}`)
-    }
+    if (chatError) throw chatError
 
-    // Add creator as participant
+    // Add creator as participant with admin role
     const participants = [user.id, ...participantIds]
     const participantData = participants.map((userId, index) => ({
       chat_id: chat.id,
       user_id: userId,
-      is_admin: index === 0, // Creator is admin
+      role: index === 0 ? 'admin' : 'member', // Creator is admin
+      joined_at: new Date().toISOString(),
     }))
 
     const { error: participantsError } = await supabase
       .from('chat_participants')
       .insert(participantData)
 
-    if (participantsError) {
-      console.error('❌ Create participants error:', participantsError)
-      throw new Error(`Failed to add participants: ${participantsError.message}`)
-    }
+    if (participantsError) throw participantsError
 
-    console.log('✅ Chat created successfully')
     return formatChatFromDB(chat)
   } catch (error) {
-    console.error('❌ Error creating chat:', error)
+    console.error('Error creating chat:', error)
     throw error
   }
 }
@@ -253,81 +180,49 @@ export async function createChat(
 // Search chats
 export async function searchChats(query: string): Promise<Chat[]> {
   try {
-    console.log('🔍 Searching chats with query:', query)
-    
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) throw new Error('User not authenticated')
 
-    // Get chat IDs where user is a participant
-    const { data: participantData, error: participantsError } = await supabase
+    const { data: chatParticipants, error } = await supabase
       .from('chat_participants')
-      .select('chat_id')
-      .eq('user_id', user.id)
-
-    if (participantsError) {
-      console.error('❌ Search participants error:', participantsError)
-      throw new Error(`Failed to fetch chat participants: ${participantsError.message}`)
-    }
-
-    if (!participantData || participantData.length === 0) {
-      return []
-    }
-
-    const chatIds = participantData.map(p => p.chat_id)
-
-    // Search in chat names
-    const { data: chatsData, error: chatsError } = await supabase
-      .from('chats')
       .select(`
-        id,
-        name,
-        chat_type,
-        phone_number,
-        avatar_url,
-        is_archived,
-        created_by,
-        created_at,
-        updated_at
+        chat_id,
+        chats!inner (
+          id,
+          name,
+          chat_type,
+          phone_number,
+          avatar_url,
+          is_archived,
+          created_by,
+          created_at,
+          updated_at
+        )
       `)
-      .in('id', chatIds)
-      .ilike('name', `%${query}%`)
-      .order('updated_at', { ascending: false })
+      .eq('user_id', user.id)
+      .is('left_at', null)
+      .ilike('chats.name', `%${query}%`)
 
-    if (chatsError) {
-      console.error('❌ Search chats error:', chatsError)
-      throw new Error(`Failed to search chats: ${chatsError.message}`)
-    }
-
-    if (!chatsData || chatsData.length === 0) {
-      return []
-    }
+    if (error) throw error
 
     const chatsWithMessages = await Promise.all(
-      chatsData.map(async (chat) => {
-        try {
-          const { data: lastMessage } = await supabase
-            .from('messages')
-            .select('*')
-            .eq('chat_id', chat.id)
-            .is('deleted_at', null)
-            .order('created_at', { ascending: false })
-            .limit(1)
-            .maybeSingle()
+      (chatParticipants || []).map(async (cp) => {
+        const { data: lastMessage } = await supabase
+          .from('messages')
+          .select('*')
+          .eq('chat_id', cp.chat_id)
+          .is('deleted_at', null)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .single()
 
-          return formatChatFromDB(chat, lastMessage || undefined)
-        } catch (error) {
-          console.warn(`⚠️ Error processing search result for chat ${chat.id}:`, error)
-          return formatChatFromDB(chat, undefined)
-        }
+        return formatChatFromDB(cp.chats, lastMessage)
       })
     )
 
-    const validChats = chatsWithMessages.filter((chat): chat is Chat => chat !== null)
-    console.log('✅ Search results:', validChats.length)
-    
-    return validChats
+    return chatsWithMessages
   } catch (error) {
-    console.error('❌ Error searching chats:', error)
+    console.error('Error searching chats:', error)
     throw error
   }
 }
@@ -344,6 +239,7 @@ export async function markMessagesAsRead(chatId: string): Promise<void> {
       .select('id')
       .eq('chat_id', chatId)
       .neq('sender_id', user.id)
+      .is('deleted_at', null)
 
     if (!messages || messages.length === 0) return
 
@@ -386,6 +282,7 @@ export async function getUnreadCount(chatId: string): Promise<number> {
       .select('id')
       .eq('chat_id', chatId)
       .neq('sender_id', user.id)
+      .is('deleted_at', null)
 
     if (!messages || messages.length === 0) return 0
 
